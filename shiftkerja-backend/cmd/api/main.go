@@ -69,7 +69,7 @@ func main() {
 
 	// A. Shift/Geo Handlers
 	shiftHandler := handler.NewShiftHandler(redisRepo)
-	http.HandleFunc("/shifts", shiftHandler.GetNearby)
+	http.HandleFunc("/shifts", handler.AuthMiddleware(shiftHandler.GetNearby))
 
 	// B. Auth Handlers
 	userRepo := repository.NewPostgresUserRepo(conn)
