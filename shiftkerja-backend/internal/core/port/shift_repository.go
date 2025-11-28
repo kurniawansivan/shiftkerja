@@ -11,6 +11,8 @@ type ShiftRepository interface {
 	GetShiftByID(ctx context.Context, id int64) (*entity.Shift, error)
 	GetShiftsByOwner(ctx context.Context, ownerID int64) ([]entity.Shift, error)
 	UpdateShiftStatus(ctx context.Context, id int64, status string) error
+	UpdateShift(ctx context.Context, shift *entity.Shift) error
+	DeleteShift(ctx context.Context, id int64) error
 	
 	// Application methods
 	ApplyForShift(ctx context.Context, shiftID, workerID int64) error
@@ -18,4 +20,5 @@ type ShiftRepository interface {
 	GetApplicationsByShift(ctx context.Context, shiftID int64) ([]entity.Application, error)
 	UpdateApplicationStatus(ctx context.Context, applicationID int64, status string) error
 	GetApplicationByID(ctx context.Context, id int64) (*entity.Application, error)
+	DeleteApplication(ctx context.Context, id int64) error
 }

@@ -239,3 +239,66 @@ func (r *PostgresShiftRepo) GetApplicationByID(ctx context.Context, id int64) (*
 	
 	return &app, nil
 }
+
+// UpdateShift updates shift details
+func (r *PostgresShiftRepo) UpdateShift(ctx context.Context, shift *entity.Shift) error {
+	query := `
+		UPDATE shifts
+		SET title = $1, description = $2, pay_rate = $3, lat = $4, lng = $5, status = $6
+		WHERE id = $7
+		RETURNING id
+	`
+	var id int64
+	err := r.DB.QueryRow(ctx, query,
+		shift.Title,
+		shift.Description,
+		shift.PayRate,
+		shift.Lat,
+		shift.Lng,
+		shift.Status,
+		shift.ID,
+	).Scan(&id)
+
+	if err == pgx.ErrNoRows {
+		return fmt.Errorf("shift not found")
+	}
+	if err != nil {
+		return fmt.Errorf("failed to update shift: %w", err)
+	}
+	return nil
+}
+
+// DeleteShift deletes a shift by ID
+func (r *PostgresShiftRepo) DeleteShift(ctx context.Context, id int64) error {
+	// First delete all applications for this shift
+	_, err := r.DB.Exec(ctx, "DELETE FROM applications WHERE shift_id = $1", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete applications: %w", err)
+	}
+
+	// Then delete the shift
+	result, err := r.DB.Exec(ctx, "DELETE FROM shifts WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete shift: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("shift not found")
+	}
+
+	return nil
+}
+
+// DeleteApplication deletes an application by ID
+func (r *PostgresShiftRepo) DeleteApplication(ctx context.Context, id int64) error {
+	result, err := r.DB.Exec(ctx, "DELETE FROM applications WHERE id = $1", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete application: %w", err)
+	}
+
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("application not found")
+	}
+
+	return nil
+}

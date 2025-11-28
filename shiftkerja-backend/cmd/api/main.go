@@ -9,7 +9,6 @@ import (
 
 	"shiftkerja-backend/internal/adapter/handler"
 	"shiftkerja-backend/internal/adapter/repository"
-	"shiftkerja-backend/internal/core/entity"
 	"shiftkerja-backend/internal/core/service"
 
 	"github.com/jackc/pgx/v5"
@@ -61,17 +60,7 @@ func main() {
 	// --- 4. SERVICES (Business Logic Layer) ---
 	shiftService := service.NewShiftService(pgShiftRepo, redisRepo)
 
-	// --- 5. SEED DATA ---
-	mockShift := entity.Shift{
-		ID:      101,
-		Title:   "Barista at Canggu Coffee",
-		Lat:     -8.6478,
-		Lng:     115.1385,
-		PayRate: 75000,
-	}
-	_ = redisRepo.AddShift(context.Background(), mockShift)
-
-	// --- 6. HANDLERS & ROUTES ---
+	// --- 5. HANDLERS & ROUTES ---
 
 	// A. Shift Handlers
 	shiftHandler := handler.NewShiftHandler(shiftService)
@@ -79,6 +68,8 @@ func main() {
 	// Shift Routes
 	http.HandleFunc("/shifts", handler.AuthMiddleware(shiftHandler.GetNearby))
 	http.HandleFunc("/shifts/create", handler.AuthMiddleware(shiftHandler.Create))
+	http.HandleFunc("/shifts/update", handler.AuthMiddleware(shiftHandler.UpdateShift))
+	http.HandleFunc("/shifts/delete", handler.AuthMiddleware(shiftHandler.DeleteShift))
 	http.HandleFunc("/shifts/apply", handler.AuthMiddleware(shiftHandler.Apply))
 	http.HandleFunc("/shifts/my-shifts", handler.AuthMiddleware(shiftHandler.GetMyShifts))
 	http.HandleFunc("/shifts/applications", handler.AuthMiddleware(shiftHandler.GetShiftApplications))
@@ -86,6 +77,7 @@ func main() {
 	
 	// Worker Routes
 	http.HandleFunc("/my-applications", handler.AuthMiddleware(shiftHandler.GetMyApplications))
+	http.HandleFunc("/my-applications/delete", handler.AuthMiddleware(shiftHandler.DeleteApplication))
 
 	// B. Auth Handlers
 	authHandler := handler.NewAuthHandler(userRepo)

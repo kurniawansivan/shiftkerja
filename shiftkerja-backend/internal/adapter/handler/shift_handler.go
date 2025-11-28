@@ -206,3 +206,104 @@ func (h *ShiftHandler) UpdateApplicationStatus(w http.ResponseWriter, r *http.Re
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "Updated successfully"})
 }
+
+// UpdateShift updates an existing shift
+func (h *ShiftHandler) UpdateShift(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	userID := int64(r.Context().Value("user_id").(float64))
+	role := r.Context().Value("role").(string)
+
+	if role != "business" {
+		http.Error(w, "Only businesses can update shifts", http.StatusForbidden)
+		return
+	}
+
+	var req entity.Shift
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	req.OwnerID = userID // Ensure ownership is maintained
+
+	err := h.Service.UpdateShift(r.Context(), &req, userID)
+	if err != nil {
+		fmt.Printf("❌ Update Shift Error: %v\n", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "Shift updated successfully"})
+}
+
+// DeleteShift deletes a shift
+func (h *ShiftHandler) DeleteShift(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	userID := int64(r.Context().Value("user_id").(float64))
+	role := r.Context().Value("role").(string)
+
+	if role != "business" {
+		http.Error(w, "Only businesses can delete shifts", http.StatusForbidden)
+		return
+	}
+
+	shiftIDStr := r.URL.Query().Get("shift_id")
+	if shiftIDStr == "" {
+		http.Error(w, "shift_id is required", http.StatusBadRequest)
+		return
+	}
+
+	shiftID, err := strconv.ParseInt(shiftIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid shift_id", http.StatusBadRequest)
+		return
+	}
+
+	err = h.Service.DeleteShift(r.Context(), shiftID, userID)
+	if err != nil {
+		fmt.Printf("❌ Delete Shift Error: %v\n", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "Shift deleted successfully"})
+}
+
+// DeleteApplication allows a worker to withdraw their application
+func (h *ShiftHandler) DeleteApplication(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	userID := int64(r.Context().Value("user_id").(float64))
+	role := r.Context().Value("role").(string)
+
+	if role != "worker" {
+		http.Error(w, "Only workers can delete their applications", http.StatusForbidden)
+		return
+	}
+
+	appIDStr := r.URL.Query().Get("application_id")
+	if appIDStr == "" {
+		http.Error(w, "application_id is required", http.StatusBadRequest)
+		return
+	}
+
+	appID, err := strconv.ParseInt(appIDStr, 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid application_id", http.StatusBadRequest)
+		return
+	}
+
+	err = h.Service.DeleteApplication(r.Context(), appID, userID)
+	if err != nil {
+		fmt.Printf("❌ Delete Application Error: %v\n", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "Application withdrawn successfully"})
+}

@@ -144,3 +144,94 @@ func (s *ShiftService) UpdateApplicationStatus(ctx context.Context, applicationI
 	
 	return nil
 }
+
+// UpdateShift handles shift updates with authorization
+func (s *ShiftService) UpdateShift(ctx context.Context, shift *entity.Shift, requesterID int64) error {
+	// 1. Verify ownership
+	existing, err := s.shiftRepo.GetShiftByID(ctx, shift.ID)
+	if err != nil {
+		return ErrShiftNotFound
+	}
+	
+	if existing.OwnerID != requesterID {
+		return ErrUnauthorized
+	}
+	
+	// 2. Validate
+	if shift.PayRate <= 0 {
+		return errors.New("pay rate must be positive")
+	}
+	if shift.Title == "" {
+		return errors.New("title is required")
+	}
+	
+	// 3. Update in Postgres
+	if err := s.shiftRepo.UpdateShift(ctx, shift); err != nil {
+		return fmt.Errorf("failed to update shift: %w", err)
+	}
+	
+	// 4. Update in Redis if still OPEN
+	if shift.Status == "OPEN" {
+		if err := s.geoRepo.AddShift(ctx, *shift); err != nil {
+			fmt.Printf("⚠️ Redis update warning: %v\n", err)
+		}
+	} else {
+		// Remove from Redis if not OPEN
+		if err := s.geoRepo.RemoveShift(ctx, shift.ID); err != nil {
+			fmt.Printf("⚠️ Redis remove warning: %v\n", err)
+		}
+	}
+	
+	return nil
+}
+
+// DeleteShift handles shift deletion with authorization
+func (s *ShiftService) DeleteShift(ctx context.Context, shiftID, requesterID int64) error {
+	// 1. Verify ownership
+	shift, err := s.shiftRepo.GetShiftByID(ctx, shiftID)
+	if err != nil {
+		return ErrShiftNotFound
+	}
+	
+	if shift.OwnerID != requesterID {
+		return ErrUnauthorized
+	}
+	
+	// 2. Delete from Postgres (cascades to applications)
+	if err := s.shiftRepo.DeleteShift(ctx, shiftID); err != nil {
+		return fmt.Errorf("failed to delete shift: %w", err)
+	}
+	
+	// 3. Remove from Redis
+	if err := s.geoRepo.RemoveShift(ctx, shiftID); err != nil {
+		fmt.Printf("⚠️ Redis remove warning: %v\n", err)
+	}
+	
+	return nil
+}
+
+// DeleteApplication handles application withdrawal (worker only)
+func (s *ShiftService) DeleteApplication(ctx context.Context, applicationID, workerID int64) error {
+	// 1. Get application
+	app, err := s.shiftRepo.GetApplicationByID(ctx, applicationID)
+	if err != nil {
+		return errors.New("application not found")
+	}
+	
+	// 2. Verify ownership
+	if app.WorkerID != workerID {
+		return ErrUnauthorized
+	}
+	
+	// 3. Only allow deletion of PENDING applications
+	if app.Status != "PENDING" {
+		return errors.New("can only withdraw pending applications")
+	}
+	
+	// 4. Delete
+	if err := s.shiftRepo.DeleteApplication(ctx, applicationID); err != nil {
+		return fmt.Errorf("failed to delete application: %w", err)
+	}
+	
+	return nil
+}
