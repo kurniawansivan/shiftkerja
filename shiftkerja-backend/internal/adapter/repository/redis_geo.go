@@ -42,7 +42,6 @@ func (r *RedisGeoRepository) AddShift(ctx context.Context, shift entity.Shift) e
 // FindNearby returns all shifts within 'km' radius
 func (r *RedisGeoRepository) FindNearby(ctx context.Context, lat, lng, km float64) ([]entity.Shift, error) {
 	// 1. Ask Redis: "Give me IDs within X km"
-	// GeoSearch returns []string (just the IDs)
 	locations, err := r.Client.GeoSearch(ctx, "shifts_geo", &redis.GeoSearchQuery{
 		Longitude:  lng,
 		Latitude:   lat,
@@ -57,7 +56,6 @@ func (r *RedisGeoRepository) FindNearby(ctx context.Context, lat, lng, km float6
 	// 2. Resolve those IDs into full Shift objects
 	var shifts []entity.Shift
 	for _, loc := range locations {
-		// FIX: 'loc' is already the string ID (e.g., "shift_001")
 		data, err := r.Client.Get(ctx, fmt.Sprintf("shift:%s", loc)).Bytes()
 		if err == nil {
 			var s entity.Shift
@@ -68,4 +66,21 @@ func (r *RedisGeoRepository) FindNearby(ctx context.Context, lat, lng, km float6
 	}
 
 	return shifts, nil
+}
+
+// RemoveShift removes a shift from the geo index
+func (r *RedisGeoRepository) RemoveShift(ctx context.Context, shiftID int64) error {
+	// 1. Remove from geo index
+	key := fmt.Sprintf("%d", shiftID)
+	if err := r.Client.ZRem(ctx, "shifts_geo", key).Err(); err != nil {
+		return err
+	}
+	
+	// 2. Remove the metadata
+	dataKey := fmt.Sprintf("shift:%d", shiftID)
+	if err := r.Client.Del(ctx, dataKey).Err(); err != nil {
+		return err
+	}
+	
+	return nil
 }

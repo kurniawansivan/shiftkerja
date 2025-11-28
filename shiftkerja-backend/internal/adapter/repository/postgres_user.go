@@ -21,7 +21,6 @@ func (r *PostgresUserRepo) CreateUser(ctx context.Context, user *entity.User) er
 		VALUES ($1, $2, $3, $4)
 		RETURNING id, created_at
 	`
-	// We scan the generated ID back into the struct
 	err := r.DB.QueryRow(ctx, query, user.Email, user.PasswordHash, user.FullName, user.Role).Scan(&user.ID, &user.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to insert user: %w", err)
@@ -39,7 +38,24 @@ func (r *PostgresUserRepo) GetUserByEmail(ctx context.Context, email string) (*e
 	
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, nil // Not found
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+func (r *PostgresUserRepo) GetUserByID(ctx context.Context, id int64) (*entity.User, error) {
+	query := `SELECT id, email, password_hash, full_name, role, created_at FROM users WHERE id = $1`
+	
+	var user entity.User
+	err := r.DB.QueryRow(ctx, query, id).Scan(
+		&user.ID, &user.Email, &user.PasswordHash, &user.FullName, &user.Role, &user.CreatedAt,
+	)
+	
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, nil
 		}
 		return nil, err
 	}

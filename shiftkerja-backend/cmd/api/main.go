@@ -10,6 +10,7 @@ import (
 	"shiftkerja-backend/internal/adapter/handler"
 	"shiftkerja-backend/internal/adapter/repository"
 	"shiftkerja-backend/internal/core/entity"
+	"shiftkerja-backend/internal/core/service"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
@@ -57,9 +58,12 @@ func main() {
 	pgShiftRepo := repository.NewPostgresShiftRepo(conn)
 	userRepo := repository.NewPostgresUserRepo(conn)
 
-	// --- 4. SEED DATA ---
+	// --- 4. SERVICES (Business Logic Layer) ---
+	shiftService := service.NewShiftService(pgShiftRepo, redisRepo)
+
+	// --- 5. SEED DATA ---
 	mockShift := entity.Shift{
-		ID:      101, // int64
+		ID:      101,
 		Title:   "Barista at Canggu Coffee",
 		Lat:     -8.6478,
 		Lng:     115.1385,
@@ -67,18 +71,21 @@ func main() {
 	}
 	_ = redisRepo.AddShift(context.Background(), mockShift)
 
-	// --- 5. HANDLERS & ROUTES ---
+	// --- 6. HANDLERS & ROUTES ---
 
 	// A. Shift Handlers
-	shiftHandler := handler.NewShiftHandler(redisRepo, pgShiftRepo)
+	shiftHandler := handler.NewShiftHandler(shiftService)
 
-	// Public/Protected Shift Routes
-	// 1. Get Nearby (Map)
+	// Shift Routes
 	http.HandleFunc("/shifts", handler.AuthMiddleware(shiftHandler.GetNearby))
-	// 2. Create Shift (Business)
 	http.HandleFunc("/shifts/create", handler.AuthMiddleware(shiftHandler.Create))
-	// 3. Apply for Shift (Worker) - 👈 NEW ENDPOINT ADDED HERE
 	http.HandleFunc("/shifts/apply", handler.AuthMiddleware(shiftHandler.Apply))
+	http.HandleFunc("/shifts/my-shifts", handler.AuthMiddleware(shiftHandler.GetMyShifts))
+	http.HandleFunc("/shifts/applications", handler.AuthMiddleware(shiftHandler.GetShiftApplications))
+	http.HandleFunc("/shifts/applications/update", handler.AuthMiddleware(shiftHandler.UpdateApplicationStatus))
+	
+	// Worker Routes
+	http.HandleFunc("/my-applications", handler.AuthMiddleware(shiftHandler.GetMyApplications))
 
 	// B. Auth Handlers
 	authHandler := handler.NewAuthHandler(userRepo)

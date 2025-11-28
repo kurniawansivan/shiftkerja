@@ -6,24 +6,22 @@ import (
 	"net/http"
 	"strconv"
 
-	"shiftkerja-backend/internal/adapter/repository"
 	"shiftkerja-backend/internal/core/entity"
+	"shiftkerja-backend/internal/core/service"
 )
 
 type ShiftHandler struct {
-	RedisRepo    *repository.RedisGeoRepository
-	PostgresRepo *repository.PostgresShiftRepo
+	Service *service.ShiftService
 }
 
-// Inject BOTH repos
-func NewShiftHandler(redis *repository.RedisGeoRepository, pg *repository.PostgresShiftRepo) *ShiftHandler {
+// Constructor using service layer (Clean Architecture)
+func NewShiftHandler(svc *service.ShiftService) *ShiftHandler {
 	return &ShiftHandler{
-		RedisRepo:    redis,
-		PostgresRepo: pg,
+		Service: svc,
 	}
 }
 
-// --- GET NEARBY (For Map) ---
+// GetNearby returns shifts within radius (for map)
 func (h *ShiftHandler) GetNearby(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	
@@ -36,8 +34,8 @@ func (h *ShiftHandler) GetNearby(w http.ResponseWriter, r *http.Request) {
 		rad = 10 // Default 10km radius
 	}
 
-	// Call Redis Repo
-	shifts, err := h.RedisRepo.FindNearby(r.Context(), lat, lng, rad)
+	// Call service layer
+	shifts, err := h.Service.GetNearbyShifts(r.Context(), lat, lng, rad)
 	if err != nil {
 		http.Error(w, "Search failed", http.StatusInternalServerError)
 		return
@@ -45,11 +43,11 @@ func (h *ShiftHandler) GetNearby(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(shifts)
 }
 
-// --- CREATE SHIFT (Business Only) ---
+// Create handles shift creation (Business only)
 func (h *ShiftHandler) Create(w http.ResponseWriter, r *http.Request) {
-	// 1. Security Check: Are you a business?
+	// 1. Security Check
 	role := r.Context().Value("role").(string)
-	userID := r.Context().Value("user_id").(float64) // JWT numbers are float64 by default
+	userID := r.Context().Value("user_id").(float64)
 
 	if role != "business" && role != "admin" {
 		http.Error(w, "Only businesses can post shifts", http.StatusForbidden)
@@ -63,36 +61,28 @@ func (h *ShiftHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set the owner from the Token (don't trust the body!)
+	// Set the owner from the token
 	req.OwnerID = int64(userID)
 
-	// 3. Save to Postgres (The Source of Truth)
-	if err := h.PostgresRepo.CreateShift(r.Context(), &req); err != nil {
-		fmt.Printf("❌ PG Error: %v\n", err)
-		http.Error(w, "Failed to save shift", http.StatusInternalServerError)
+	// 3. Call service layer (handles dual-write)
+	if err := h.Service.CreateShift(r.Context(), &req); err != nil {
+		fmt.Printf("❌ Create Shift Error: %v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
-	}
-
-	// 4. Save to Redis (The Geo Index)
-	// The req.ID is now populated from Postgres
-	if err := h.RedisRepo.AddShift(r.Context(), req); err != nil {
-		// Log error but don't fail request (Data is safe in SQL)
-		fmt.Printf("⚠️ Redis Sync Error: %v\n", err)
 	}
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(req)
 }
 
-// --- APPLY FOR SHIFT (Worker Only) ---
-// Define Request Body Struct
+// ApplyRequest defines the request body for applying to a shift
 type ApplyRequest struct {
 	ShiftID int64 `json:"shift_id"`
 }
 
+// Apply handles worker application to a shift
 func (h *ShiftHandler) Apply(w http.ResponseWriter, r *http.Request) {
-	// 1. Who is the user?
-	// Note: user_id comes from JWT middleware as float64
+	// 1. Authentication check
 	userID := int64(r.Context().Value("user_id").(float64))
 	role := r.Context().Value("role").(string)
 
@@ -101,22 +91,118 @@ func (h *ShiftHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Which shift?
+	// 2. Parse request
 	var req ApplyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid input", http.StatusBadRequest)
 		return
 	}
 
-	// 3. Save to DB
-	err := h.PostgresRepo.ApplyForShift(r.Context(), req.ShiftID, userID)
+	// 3. Call service layer
+	err := h.Service.ApplyForShift(r.Context(), req.ShiftID, userID)
 	if err != nil {
-		// Log the specific error for debugging
 		fmt.Printf("❌ Apply Error: %v\n", err)
-		http.Error(w, "Failed to apply (Shift might not exist or already applied)", http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "Applied successfully"})
+}
+
+// GetMyShifts returns all shifts posted by the business owner
+func (h *ShiftHandler) GetMyShifts(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	userID := int64(r.Context().Value("user_id").(float64))
+	role := r.Context().Value("role").(string)
+
+	if role != "business" && role != "admin" {
+		http.Error(w, "Only businesses can view their shifts", http.StatusForbidden)
+		return
+	}
+
+	shifts, err := h.Service.GetMyShifts(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "Failed to retrieve shifts", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(shifts)
+}
+
+// GetMyApplications returns all applications for a worker
+func (h *ShiftHandler) GetMyApplications(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	userID := int64(r.Context().Value("user_id").(float64))
+	role := r.Context().Value("role").(string)
+
+	if role != "worker" {
+		http.Error(w, "Only workers can view their applications", http.StatusForbidden)
+		return
+	}
+
+	applications, err := h.Service.GetMyApplications(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "Failed to retrieve applications", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(applications)
+}
+
+// GetShiftApplications returns all applications for a specific shift (business owner only)
+func (h *ShiftHandler) GetShiftApplications(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
+	userID := int64(r.Context().Value("user_id").(float64))
+	
+	// Parse shift ID from query param
+	shiftID, err := strconv.ParseInt(r.URL.Query().Get("shift_id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid shift_id", http.StatusBadRequest)
+		return
+	}
+
+	applications, err := h.Service.GetShiftApplications(r.Context(), shiftID, userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	}
+
+	json.NewEncoder(w).Encode(applications)
+}
+
+// UpdateApplicationStatusRequest defines the request body for updating application status
+type UpdateApplicationStatusRequest struct {
+	ApplicationID int64  `json:"application_id"`
+	Status        string `json:"status"` // ACCEPTED or REJECTED
+}
+
+// UpdateApplicationStatus handles accepting/rejecting applications
+func (h *ShiftHandler) UpdateApplicationStatus(w http.ResponseWriter, r *http.Request) {
+	userID := int64(r.Context().Value("user_id").(float64))
+	role := r.Context().Value("role").(string)
+
+	if role != "business" && role != "admin" {
+		http.Error(w, "Only businesses can update application status", http.StatusForbidden)
+		return
+	}
+
+	var req UpdateApplicationStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid input", http.StatusBadRequest)
+		return
+	}
+
+	err := h.Service.UpdateApplicationStatus(r.Context(), req.ApplicationID, userID, req.Status)
+	if err != nil {
+		fmt.Printf("❌ Update Status Error: %v\n", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"status": "Updated successfully"})
 }
