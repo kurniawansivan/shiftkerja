@@ -86,7 +86,11 @@ func main() {
 
 	// D. Start Server
 	fmt.Println("🚀 ShiftKerja Backend starting on port 8080...")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	
+	// 👇 Wrap the default router (nil) with our CORS Middleware
+	router := handler.CORSMiddleware(http.DefaultServeMux)
+
+	if err := http.ListenAndServe(":8080", router); err != nil {
 		fmt.Println("Error:", err)
 	}
 }
