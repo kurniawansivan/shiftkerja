@@ -12,7 +12,7 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	// ALLOW CORS for WebSockets (Critical for Vue running on different port)
+	// ALLOW CORS for WebSockets
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
@@ -46,17 +46,37 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	
 	fmt.Println("🟢 New Client Connected!")
 
-	// 3. Listen for Messages (Loop forever until disconnect)
+	// Ensure connection is closed and removed when function exits
+	defer func() {
+		h.Mutex.Lock()
+		delete(h.Clients, conn)
+		h.Mutex.Unlock()
+		conn.Close()
+		fmt.Println("🔴 Client Disconnected")
+	}()
+
+	// 3. Listen for Messages (The Broadcast Loop)
 	for {
-		// Read message (we ignore content for now, just keeping connection alive)
-		_, msg, err := conn.ReadMessage()
+		// Read incoming JSON message
+		var msg map[string]interface{}
+		err := conn.ReadJSON(&msg)
 		if err != nil {
-			fmt.Println("🔴 Client Disconnected")
-			h.Mutex.Lock()
-			delete(h.Clients, conn)
-			h.Mutex.Unlock()
-			break
+			// If error (client disconnected), break the loop
+			break 
 		}
-		fmt.Printf("📩 Received: %s\n", msg)
+
+		fmt.Printf("⚡ Broadcasting: %v\n", msg)
+
+		// 4. BROADCAST to ALL connected clients
+		h.Mutex.Lock()
+		for client := range h.Clients {
+			err := client.WriteJSON(msg)
+			if err != nil {
+				fmt.Printf("❌ Failed to write to client: %v\n", err)
+				client.Close()
+				delete(h.Clients, client)
+			}
+		}
+		h.Mutex.Unlock()
 	}
 }
