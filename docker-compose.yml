@@ -1,0 +1,41 @@
+services:
+  # Service 1: The Database (PostgreSQL + PostGIS)
+  postgres:
+    image: kartoza/postgis:18-3.6
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASS: password123 
+      POSTGRES_DB: shiftkerja
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - shiftkerja_net
+    healthcheck:                  
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Service 2: The Cache (Redis)
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - shiftkerja_net
+
+# Define persistent storage (so data survives restarts)
+volumes:
+  postgres_data:
+  redis_data:
+
+# Define a private network for these services to talk
+networks:
+  shiftkerja_net:
+    driver: bridge
