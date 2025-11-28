@@ -23,7 +23,7 @@ func (r *RedisGeoRepository) AddShift(ctx context.Context, shift entity.Shift) e
 	data, _ := json.Marshal(shift)
 	
 	// We use a simple Key-Value pair for details: "shift:123" -> JSON
-	key := fmt.Sprintf("shift:%s", shift.ID)
+	key := fmt.Sprintf("shift:%d", shift.ID) 
 	if err := r.Client.Set(ctx, key, data, 0).Err(); err != nil {
 		return err
 	}
@@ -31,7 +31,7 @@ func (r *RedisGeoRepository) AddShift(ctx context.Context, shift entity.Shift) e
 	// 2. Store the Location in the Geospatial Index
 	// "shifts_geo" is the key for our map index
 	cmd := r.Client.GeoAdd(ctx, "shifts_geo", &redis.GeoLocation{
-		Name:      shift.ID, // We just store the ID here
+		Name:      fmt.Sprintf("%d", shift.ID),
 		Longitude: shift.Lng,
 		Latitude:  shift.Lat,
 	})

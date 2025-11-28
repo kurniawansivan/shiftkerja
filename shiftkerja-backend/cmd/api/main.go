@@ -52,36 +52,41 @@ func main() {
 	}
 	fmt.Println("✅ Connected to Redis successfully!")
 
-	// --- 3. SEED DATA (Temporary) ---
+	// --- 3. REPOSITORIES ---
 	redisRepo := repository.NewRedisGeoRepo(rdb)
+	pgShiftRepo := repository.NewPostgresShiftRepo(conn) // 👈 NEW: For saving shifts to DB
+	userRepo := repository.NewPostgresUserRepo(conn)
 
+	// --- 4. SEED DATA (Updated for int64 ID) ---
 	mockShift := entity.Shift{
-		ID:      "shift_001",
+		ID:      101, // Changed to int64 to match new Struct
 		Title:   "Barista at Canggu Coffee",
 		Lat:     -8.6478,
 		Lng:     115.1385,
 		PayRate: 75000,
 	}
-
+	// We use background context here for simplicity
 	_ = redisRepo.AddShift(context.Background(), mockShift)
 
-	// --- 4. HTTP Server Setup ---
+	// --- 5. HANDLERS & ROUTES ---
 
 	// A. Shift/Geo Handlers
-	shiftHandler := handler.NewShiftHandler(redisRepo)
+	// Updated: Now accepts BOTH Redis and Postgres repos
+	shiftHandler := handler.NewShiftHandler(redisRepo, pgShiftRepo) 
+
+	// Routes
+	// Get Nearby (Protected)
 	http.HandleFunc("/shifts", handler.AuthMiddleware(shiftHandler.GetNearby))
+	// Create Shift (Protected - Business Only) - 👈 NEW ENDPOINT
+	http.HandleFunc("/shifts/create", handler.AuthMiddleware(shiftHandler.Create))
 
 	// B. Auth Handlers
-	userRepo := repository.NewPostgresUserRepo(conn)
 	authHandler := handler.NewAuthHandler(userRepo)
-	
-	// Register Routes
 	http.HandleFunc("/register", authHandler.Register)
 	http.HandleFunc("/login", authHandler.Login)
 
-	// C. WebSocket Setup (NEW! 👇)
+	// C. WebSocket Setup
 	wsHub := handler.NewHub()
-	// Expose the WebSocket endpoint
 	http.HandleFunc("/ws", wsHub.HandleWS)
 
 	// D. Health Check
@@ -89,9 +94,9 @@ func main() {
 		w.Write([]byte("ShiftKerja System Online"))
 	})
 
-	// E. Start Server
+	// --- 6. START SERVER ---
 	fmt.Println("🚀 ShiftKerja Backend starting on port 8080...")
-	
+
 	// Wrap the default router (nil) with our CORS Middleware
 	router := handler.CORSMiddleware(http.DefaultServeMux)
 
