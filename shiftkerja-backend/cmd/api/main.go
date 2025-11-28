@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"shiftkerja-backend/internal/adapter/handler" 
+	"shiftkerja-backend/internal/adapter/handler"
 	"shiftkerja-backend/internal/adapter/repository"
 	"shiftkerja-backend/internal/core/entity"
 
@@ -38,8 +38,8 @@ func main() {
 	// --- 2. Cache Setup (Redis) ---
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     "localhost:6379",
-		Password: "", 
-		DB:       0,  
+		Password: "",
+		DB:       0,
 	})
 
 	fmt.Println("⏳ Connecting to Redis...")
@@ -53,7 +53,7 @@ func main() {
 	fmt.Println("✅ Connected to Redis successfully!")
 
 	// --- 3. SEED DATA (Temporary) ---
-	repo := repository.NewRedisGeoRepo(rdb)
+	redisRepo := repository.NewRedisGeoRepo(rdb) // Renamed variable for clarity
 
 	mockShift := entity.Shift{
 		ID:      "shift_001",
@@ -63,18 +63,21 @@ func main() {
 		PayRate: 75000,
 	}
 
-	// We seed silently here to ensure data exists for the map
-	_ = repo.AddShift(context.Background(), mockShift)
+	_ = redisRepo.AddShift(context.Background(), mockShift)
 
 	// --- 4. HTTP Server Setup ---
-	
-	// A. Initialize the Handler
-	// We inject the 'repo' so the handler can access the database
-	shiftHandler := handler.NewShiftHandler(repo)
 
-	// B. Register the Routes
-	// When a user hits "/shifts", run the GetNearby function
-	http.HandleFunc("/shifts", shiftHandler.GetNearby) 
+	// A. Shift/Geo Handlers
+	shiftHandler := handler.NewShiftHandler(redisRepo)
+	http.HandleFunc("/shifts", shiftHandler.GetNearby)
+
+	// B. Auth Handlers (NEW! 👇)
+	// We use the Postgres connection ('conn') here, not Redis
+	userRepo := repository.NewPostgresUserRepo(conn)
+	authHandler := handler.NewAuthHandler(userRepo)
+	
+	// Register the endpoint
+	http.HandleFunc("/register", authHandler.Register)
 
 	// C. Health Check
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
