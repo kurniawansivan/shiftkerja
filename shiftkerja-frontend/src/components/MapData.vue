@@ -16,6 +16,9 @@ const showShiftModal = ref(false);
 
 const applyForShift = async (shiftId) => {
   try {
+    console.log('Applying for shift:', shiftId);
+    console.log('Token:', authStore.token ? 'Present' : 'Missing');
+    
     const res = await fetch('http://localhost:8080/shifts/apply', {
       method: 'POST',
       headers: {
@@ -25,16 +28,21 @@ const applyForShift = async (shiftId) => {
       body: JSON.stringify({ shift_id: shiftId })
     });
 
+    console.log('Response status:', res.status);
+    
     if (res.ok) {
+      const result = await res.json();
+      console.log('Success:', result);
       alert('✅ Application submitted successfully!');
       showShiftModal.value = false;
     } else {
       const error = await res.text();
-      alert('❌ ' + error);
+      console.error('Error response:', error);
+      alert('❌ Failed: ' + error);
     }
   } catch (error) {
-    console.error('Error applying:', error);
-    alert('Failed to apply for shift');
+    console.error('Network error applying:', error);
+    alert('❌ Network error: ' + error.message);
   }
 };
 
@@ -60,6 +68,9 @@ const searchResults = ref([]);
 const isSearching = ref(false);
 const userMarker = ref(null);
 const currentPosition = ref({ lat: -8.6478, lng: 115.1385 });
+const manualPinMode = ref(false);
+const tempMarker = ref(null);
+const selectedCoords = ref(null);
 
 // Geocoding search using Nominatim (OpenStreetMap)
 const searchLocation = async () => {
@@ -176,7 +187,58 @@ const fetchShiftsNearby = async (lat, lng, radius = 10) => {
   }
 };
 
+// Toggle manual pin mode
+const togglePinMode = () => {
+  manualPinMode.value = !manualPinMode.value;
+  
+  if (manualPinMode.value) {
+    map.value.getContainer().style.cursor = 'crosshair';
+    alert('📍 Click anywhere on the map to explore that location and find nearby shifts!');
+  } else {
+    map.value.getContainer().style.cursor = '';
+    if (tempMarker.value) {
+      map.value.removeLayer(tempMarker.value);
+      tempMarker.value = null;
+    }
+  }
+};
 
+// Handle map click for manual pinning
+const handleMapClick = (e) => {
+  if (manualPinMode.value) {
+    const lat = e.latlng.lat;
+    const lng = e.latlng.lng;
+    
+    if (tempMarker.value) {
+      map.value.removeLayer(tempMarker.value);
+    }
+    
+    const pinIcon = L.divIcon({
+      className: 'temp-pin-marker',
+      html: '<div style="background: #EF4444; width: 24px; height: 24px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 3px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.3);"><div style="width: 8px; height: 8px; background: white; border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(45deg);"></div></div>',
+      iconSize: [24, 24],
+      iconAnchor: [12, 24]
+    });
+    
+    tempMarker.value = L.marker([lat, lng], { icon: pinIcon })
+      .addTo(map.value)
+      .bindPopup(`
+        <div style="text-align: center; font-family: sans-serif;">
+          <p style="font-weight: 600; margin: 0 0 8px 0; color: #1e293b;">📍 Selected Location</p>
+          <p style="font-size: 11px; color: #64748b; margin: 0 0 8px 0; font-family: monospace;">${lat.toFixed(6)}, ${lng.toFixed(6)}</p>
+          <p style="font-size: 12px; color: #10b981; margin: 0;">Loading nearby shifts...</p>
+        </div>
+      `)
+      .openPopup();
+    
+    selectedCoords.value = { lat, lng };
+    currentPosition.value = { lat, lng };
+    fetchShiftsNearby(lat, lng);
+    
+    manualPinMode.value = false;
+    map.value.getContainer().style.cursor = '';
+  }
+};
 
 onMounted(async () => {
   // 1. Initialize the map
@@ -186,6 +248,9 @@ onMounted(async () => {
     maxZoom: 19,
     attribution: '&copy; OpenStreetMap'
   }).addTo(map.value);
+  
+  // Enable map click for manual pinning
+  map.value.on('click', handleMapClick);
 
   // 2. CONNECT WEBSOCKET
   socketStore.connect();
@@ -200,13 +265,36 @@ onMounted(async () => {
     try {
       // Parse the JSON string
       const data = JSON.parse(lastMsgJson);
-      console.log("📍 MAP UPDATE:", data);
+      console.log("🔔 Live Event:", data);
 
-      // Add a marker to the map (Live Update!)
-      L.marker([data.lat, data.lng])
-        .addTo(map.value)
-        .bindPopup(`<b>${data.title}</b><br>LIVE UPDATE!`)
-        .openPopup();
+      if (data.type === 'shift_created') {
+        // New shift posted - add animated live marker
+        const liveIcon = L.divIcon({
+          className: 'shift-marker-live',
+          html: `<div style="background: linear-gradient(135deg, #F59E0B, #EF4444); color: white; padding: 8px 12px; border-radius: 20px; font-weight: 700; font-size: 12px; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4); white-space: nowrap;">🔥 NEW: Rp ${(data.pay_rate / 1000).toFixed(0)}k</div>`,
+          iconSize: [120, 32],
+          iconAnchor: [60, 16]
+        });
+        
+        L.marker([data.lat, data.lng], { icon: liveIcon })
+          .addTo(map.value)
+          .bindPopup(`
+            <div style="text-align: center; font-family: sans-serif;">
+              <p style="font-weight: 700; margin: 0 0 4px 0; color: #F59E0B;">🔥 LIVE: New Shift Posted!</p>
+              <p style="font-weight: 600; margin: 0 0 8px 0; color: #1e293b;">${data.title}</p>
+              <p style="font-size: 14px; color: #10b981; font-weight: 600; margin: 0;">Rp ${data.pay_rate?.toLocaleString()}</p>
+            </div>
+          `)
+          .openPopup();
+          
+        // Refresh shifts after 2 seconds
+        setTimeout(() => {
+          fetchShiftsNearby(currentPosition.value.lat, currentPosition.value.lng);
+        }, 2000);
+        
+      } else if (data.type === 'shift_applied') {
+        console.log("✅ Someone applied to shift:", data.shift_id);
+      }
         
     } catch (e) {
       console.error("Error parsing WS message", e);
@@ -271,12 +359,26 @@ onMounted(async () => {
           <button 
             @click="getUserLocation" 
             class="bg-white/95 backdrop-blur-lg text-blue-600 px-4 py-3 rounded-xl shadow-lg hover:bg-white font-medium transition-all duration-200 flex items-center justify-center gap-2"
+            title="Use my current GPS location"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
             <span class="hidden sm:inline">My Location</span>
+          </button>
+          
+          <button 
+            @click="togglePinMode" 
+            :class="manualPinMode ? 'bg-red-500 text-white' : 'bg-white/95 backdrop-blur-lg text-red-600'"
+            class="px-4 py-3 rounded-xl shadow-lg hover:shadow-xl font-medium transition-all duration-200 flex items-center justify-center gap-2"
+            title="Click anywhere on the map to explore"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            <span class="hidden sm:inline">{{ manualPinMode ? 'Cancel Pin' : 'Pin Location' }}</span>
           </button>
           
           <button 
@@ -298,21 +400,32 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- Search Bar -->
+      <!-- Enhanced Search Bar -->
       <div class="relative">
-        <div class="bg-white/95 backdrop-blur-lg rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+        <div class="bg-white/95 backdrop-blur-lg rounded-xl shadow-lg border border-slate-200 overflow-hidden hover:border-blue-300 transition-colors">
           <div class="flex items-center gap-2 px-4">
-            <svg class="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg class="w-5 h-5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
               v-model="searchQuery"
               @input="searchLocation"
+              @keydown.escape="searchResults = []; searchQuery = ''"
               type="text"
-              placeholder="Search location (e.g., Canggu, Denpasar, Seminyak...)"
+              placeholder="🔍 Search: Canggu, Denpasar, Seminyak, Ubud..."
               class="flex-1 py-3 bg-transparent border-none outline-none text-slate-700 placeholder-slate-400"
             />
-            <svg v-if="isSearching" class="w-5 h-5 text-blue-600 animate-spin" fill="none" viewBox="0 0 24 24">
+            <button 
+              v-if="searchQuery && !isSearching"
+              @click="searchResults = []; searchQuery = ''"
+              class="text-slate-400 hover:text-slate-600 transition-colors p-1"
+              title="Clear search"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <svg v-if="isSearching" class="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
             </svg>

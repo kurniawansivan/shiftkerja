@@ -30,6 +30,21 @@ func NewHub() *Hub {
 	}
 }
 
+// Broadcast sends a message to all connected clients
+func (h *Hub) Broadcast(message interface{}) {
+	h.Mutex.Lock()
+	defer h.Mutex.Unlock()
+	
+	for client := range h.Clients {
+		err := client.WriteJSON(message)
+		if err != nil {
+			fmt.Printf("❌ Failed to broadcast to client: %v\n", err)
+			client.Close()
+			delete(h.Clients, client)
+		}
+	}
+}
+
 // HandleWS is the endpoint: ws://localhost:8080/ws
 func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	// 1. Upgrade HTTP -> WebSocket

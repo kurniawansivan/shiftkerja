@@ -62,8 +62,11 @@ func main() {
 
 	// --- 5. HANDLERS & ROUTES ---
 
-	// A. Shift Handlers
-	shiftHandler := handler.NewShiftHandler(shiftService)
+	// WebSocket Hub (created first to pass to handlers)
+	wsHub := handler.NewHub()
+
+	// A. Shift Handlers (with WebSocket hub for broadcasting)
+	shiftHandler := handler.NewShiftHandler(shiftService, wsHub)
 
 	// Shift Routes
 	http.HandleFunc("/shifts", handler.AuthMiddleware(shiftHandler.GetNearby))
@@ -84,8 +87,7 @@ func main() {
 	http.HandleFunc("/register", authHandler.Register)
 	http.HandleFunc("/login", authHandler.Login)
 
-	// C. WebSocket Setup
-	wsHub := handler.NewHub()
+	// C. WebSocket Endpoint
 	http.HandleFunc("/ws", wsHub.HandleWS)
 
 	// D. Health Check

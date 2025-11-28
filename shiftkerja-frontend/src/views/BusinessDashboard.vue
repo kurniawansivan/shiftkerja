@@ -2,6 +2,8 @@
 import { ref, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { useRouter } from 'vue-router';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 const authStore = useAuthStore();
 const router = useRouter();
@@ -26,6 +28,9 @@ const showLocationPicker = ref(false);
 const locationSearch = ref('');
 const locationResults = ref([]);
 const pickingLocationFor = ref('create'); // 'create' or 'edit'
+const mapInstance = ref(null);
+const tempMarker = ref(null);
+const showMapPicker = ref(false);
 
 const fetchMyShifts = async () => {
   try {
@@ -191,6 +196,83 @@ const openLocationPicker = (forType) => {
   locationSearch.value = '';
   locationResults.value = [];
   showLocationPicker.value = true;
+};
+
+// Map-based location picker
+const openMapPicker = (forType) => {
+  pickingLocationFor.value = forType;
+  showMapPicker.value = true;
+  
+  // Initialize map after modal opens
+  setTimeout(() => {
+    if (!mapInstance.value) {
+      mapInstance.value = L.map('locationMap').setView([-8.6478, 115.1385], 13);
+      
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '© OpenStreetMap'
+      }).addTo(mapInstance.value);
+      
+      // Click to place marker
+      mapInstance.value.on('click', handleMapClick);
+    }
+  }, 100);
+};
+
+const handleMapClick = (e) => {
+  const lat = e.latlng.lat;
+  const lng = e.latlng.lng;
+  
+  // Remove previous marker
+  if (tempMarker.value) {
+    mapInstance.value.removeLayer(tempMarker.value);
+  }
+  
+  // Create pin marker
+  const pinIcon = L.divIcon({
+    className: 'temp-pin-marker',
+    html: '<div style=\"background: #EF4444; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 4px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.3);\"><div style=\"width: 10px; height: 10px; background: white; border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(45deg);\"></div></div>',
+    iconSize: [30, 30],
+    iconAnchor: [15, 30]
+  });
+  
+  tempMarker.value = L.marker([lat, lng], { icon: pinIcon })
+    .addTo(mapInstance.value)
+    .bindPopup(`
+      <div style=\"text-align: center; font-family: sans-serif;\">
+        <p style=\"font-weight: 600; margin: 0 0 8px 0;\">📍 Selected Location</p>
+        <p style=\"font-size: 11px; color: #666; margin: 0 0 12px 0; font-family: monospace;\">${lat.toFixed(6)}, ${lng.toFixed(6)}</p>
+        <button onclick=\"document.getElementById('confirmLocation').click()\" style=\"background: #3B82F6; color: white; padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600;\">Use This Location</button>
+      </div>
+    `)
+    .openPopup();
+};
+
+const confirmMapSelection = () => {
+  if (!tempMarker.value) {
+    alert('Please click on the map to select a location');
+    return;
+  }
+  
+  const latlng = tempMarker.value.getLatLng();
+  
+  if (pickingLocationFor.value === 'create') {
+    newShift.value.lat = latlng.lat.toFixed(6);
+    newShift.value.lng = latlng.lng.toFixed(6);
+  } else {
+    editingShift.value.lat = latlng.lat;
+    editingShift.value.lng = latlng.lng;
+  }
+  
+  closeMapPicker();
+};
+
+const closeMapPicker = () => {
+  showMapPicker.value = false;
+  if (tempMarker.value && mapInstance.value) {
+    mapInstance.value.removeLayer(tempMarker.value);
+    tempMarker.value = null;
+  }
 };
 
 // Edit shift
@@ -360,18 +442,35 @@ onMounted(() => {
 
             <div>
               <label class="block text-sm font-medium text-slate-700 mb-2">Location *</label>
-              <button
-                type="button"
-                @click="openLocationPicker('create')"
-                class="w-full px-4 py-3 border-2 border-dashed border-slate-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left flex items-center gap-2 text-slate-600"
-              >
-                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-                <span v-if="!newShift.lat || !newShift.lng">Click to search location on map</span>
-                <span v-else class="font-mono text-sm">{{ newShift.lat }}, {{ newShift.lng }}</span>
-              </button>
+              <div class="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  @click="openLocationPicker('create')"
+                  class="px-4 py-3 border-2 border-slate-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all flex flex-col items-center gap-1 text-slate-600"
+                >
+                  <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <span class="text-sm font-medium">Search Address</span>
+                </button>
+                <button
+                  type="button"
+                  @click="openMapPicker('create')"
+                  class="px-4 py-3 border-2 border-red-300 rounded-xl hover:border-red-500 hover:bg-red-50 transition-all flex flex-col items-center gap-1 text-red-600"
+                >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span class="text-sm font-medium">Pin on Map</span>
+                </button>
+              </div>
+              <div v-if="newShift.lat && newShift.lng" class="mt-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+                <p class="text-sm text-green-800">
+                  <span class="font-semibold">Selected:</span>
+                  <span class="font-mono ml-1">{{ newShift.lat }}, {{ newShift.lng }}</span>
+                </p>
+              </div>
             </div>
 
             <button 
@@ -567,13 +666,35 @@ onMounted(() => {
 
           <div>
             <label class="block text-sm font-medium text-slate-700 mb-2">Location</label>
-            <button type="button" @click="openLocationPicker('edit')" class="w-full px-4 py-3 border-2 border-dashed border-slate-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all text-left flex items-center gap-2 text-slate-600">
-              <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <span class="font-mono text-sm">{{ editingShift.lat?.toFixed(6) }}, {{ editingShift.lng?.toFixed(6) }}</span>
-            </button>
+            <div class="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                @click="openLocationPicker('edit')"
+                class="px-4 py-3 border-2 border-slate-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all flex flex-col items-center gap-1 text-slate-600"
+              >
+                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <span class="text-sm font-medium">Search Address</span>
+              </button>
+              <button
+                type="button"
+                @click="openMapPicker('edit')"
+                class="px-4 py-3 border-2 border-red-300 rounded-xl hover:border-red-500 hover:bg-red-50 transition-all flex flex-col items-center gap-1 text-red-600"
+              >
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span class="text-sm font-medium">Pin on Map</span>
+              </button>
+            </div>
+            <div class="mt-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
+              <p class="text-sm text-slate-700">
+                <span class="font-semibold">Current:</span>
+                <span class="font-mono ml-1">{{ editingShift.lat?.toFixed(6) }}, {{ editingShift.lng?.toFixed(6) }}</span>
+              </p>
+            </div>
           </div>
 
           <div>
@@ -597,7 +718,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Location Picker Modal -->
+    <!-- Location Picker Modal (Search) -->
     <div v-if="showLocationPicker" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[10001] p-4">
       <div class="bg-white rounded-2xl shadow-2xl p-6 max-w-2xl w-full mx-4">
         <div class="flex justify-between items-start mb-6">
@@ -635,6 +756,61 @@ onMounted(() => {
         <p v-else-if="locationSearch && locationResults.length === 0" class="text-center text-slate-500 py-8">
           Type at least 3 characters to search...
         </p>
+        
+        <div class="mt-4 pt-4 border-t border-slate-200">
+          <button
+            @click="showLocationPicker = false; openMapPicker(pickingLocationFor)"
+            type="button"
+            class="w-full bg-gradient-to-r from-red-600 to-pink-600 text-white px-4 py-3 rounded-xl hover:from-red-700 hover:to-pink-700 font-semibold flex items-center justify-center gap-2 transition-all"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+            </svg>
+            Can't find it? Pin location on map manually
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Map Picker Modal -->
+    <div v-if="showMapPicker" class="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[10001] p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-4xl mx-4 overflow-hidden">
+        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 p-6 text-white">
+          <div class="flex justify-between items-start">
+            <div>
+              <h2 class="text-2xl font-bold">📍 Pin Your Location</h2>
+              <p class="text-blue-100 mt-1">Click anywhere on the map to select the exact location</p>
+            </div>
+            <button @click="closeMapPicker" class="text-white/80 hover:text-white transition-colors">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        
+        <div id="locationMap" class="h-96 w-full"></div>
+        
+        <div class="p-6 bg-slate-50 border-t border-slate-200">
+          <div class="flex gap-3">
+            <button
+              id="confirmLocation"
+              @click="confirmMapSelection"
+              class="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-3 rounded-xl hover:from-green-700 hover:to-emerald-700 font-semibold flex items-center justify-center gap-2 transition-all shadow-lg"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+              Confirm Location
+            </button>
+            <button
+              @click="closeMapPicker"
+              class="px-6 py-3 bg-white text-slate-700 border-2 border-slate-300 rounded-xl hover:bg-slate-50 font-semibold transition-all"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

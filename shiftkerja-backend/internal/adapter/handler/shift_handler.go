@@ -12,12 +12,14 @@ import (
 
 type ShiftHandler struct {
 	Service *service.ShiftService
+	Hub     *Hub
 }
 
 // Constructor using service layer (Clean Architecture)
-func NewShiftHandler(svc *service.ShiftService) *ShiftHandler {
+func NewShiftHandler(svc *service.ShiftService, hub *Hub) *ShiftHandler {
 	return &ShiftHandler{
 		Service: svc,
+		Hub:     hub,
 	}
 }
 
@@ -71,6 +73,21 @@ func (h *ShiftHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 4. BROADCAST TO WEBSOCKET (Live Updates)
+	if h.Hub != nil {
+		broadcastMsg := map[string]interface{}{
+			"type":     "shift_created",
+			"id":       req.ID,
+			"title":    req.Title,
+			"lat":      req.Lat,
+			"lng":      req.Lng,
+			"pay_rate": req.PayRate,
+			"status":   req.Status,
+		}
+		h.Hub.Broadcast(broadcastMsg)
+		fmt.Printf("📡 Broadcasted shift creation: %s\n", req.Title)
+	}
+
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(req)
 }
@@ -82,6 +99,8 @@ type ApplyRequest struct {
 
 // Apply handles worker application to a shift
 func (h *ShiftHandler) Apply(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	
 	// 1. Authentication check
 	userID := int64(r.Context().Value("user_id").(float64))
 	role := r.Context().Value("role").(string)
@@ -104,6 +123,17 @@ func (h *ShiftHandler) Apply(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("❌ Apply Error: %v\n", err)
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
+	}
+
+	// 4. BROADCAST APPLICATION EVENT
+	if h.Hub != nil {
+		broadcastMsg := map[string]interface{}{
+			"type":      "shift_applied",
+			"shift_id":  req.ShiftID,
+			"worker_id": userID,
+		}
+		h.Hub.Broadcast(broadcastMsg)
+		fmt.Printf("📡 Broadcasted application for shift ID: %d\n", req.ShiftID)
 	}
 
 	w.WriteHeader(http.StatusOK)

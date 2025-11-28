@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"shiftkerja-backend/internal/core/entity"
 
@@ -117,13 +118,24 @@ func (r *PostgresShiftRepo) UpdateShiftStatus(ctx context.Context, id int64, sta
 
 // ApplyForShift creates a new application
 func (r *PostgresShiftRepo) ApplyForShift(ctx context.Context, shiftID, workerID int64) error {
+	// Check if already applied
+	checkQuery := `SELECT COUNT(*) FROM applications WHERE shift_id = $1 AND worker_id = $2`
+	var count int
+	err := r.DB.QueryRow(ctx, checkQuery, shiftID, workerID).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check existing application: %w", err)
+	}
+	if count > 0 {
+		return errors.New("you have already applied to this shift")
+	}
+
 	query := `
 		INSERT INTO applications (shift_id, worker_id, status)
 		VALUES ($1, $2, 'PENDING')
 	`
-	_, err := r.DB.Exec(ctx, query, shiftID, workerID)
+	_, err = r.DB.Exec(ctx, query, shiftID, workerID)
 	if err != nil {
-		return fmt.Errorf("failed to apply: %w", err)
+		return fmt.Errorf("failed to submit application: %w", err)
 	}
 	return nil
 }
