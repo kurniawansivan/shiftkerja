@@ -53,7 +53,7 @@ func main() {
 	fmt.Println("✅ Connected to Redis successfully!")
 
 	// --- 3. SEED DATA (Temporary) ---
-	redisRepo := repository.NewRedisGeoRepo(rdb) // Renamed variable for clarity
+	redisRepo := repository.NewRedisGeoRepo(rdb)
 
 	mockShift := entity.Shift{
 		ID:      "shift_001",
@@ -71,13 +71,13 @@ func main() {
 	shiftHandler := handler.NewShiftHandler(redisRepo)
 	http.HandleFunc("/shifts", shiftHandler.GetNearby)
 
-	// B. Auth Handlers (NEW! 👇)
-	// We use the Postgres connection ('conn') here, not Redis
+	// B. Auth Handlers
 	userRepo := repository.NewPostgresUserRepo(conn)
 	authHandler := handler.NewAuthHandler(userRepo)
 	
-	// Register the endpoint
+	// Register Routes
 	http.HandleFunc("/register", authHandler.Register)
+	http.HandleFunc("/login", authHandler.Login) // 👈 NEW: Added this line!
 
 	// C. Health Check
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
