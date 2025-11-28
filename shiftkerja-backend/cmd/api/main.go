@@ -77,17 +77,22 @@ func main() {
 	
 	// Register Routes
 	http.HandleFunc("/register", authHandler.Register)
-	http.HandleFunc("/login", authHandler.Login) // 👈 NEW: Added this line!
+	http.HandleFunc("/login", authHandler.Login)
 
-	// C. Health Check
+	// C. WebSocket Setup (NEW! 👇)
+	wsHub := handler.NewHub()
+	// Expose the WebSocket endpoint
+	http.HandleFunc("/ws", wsHub.HandleWS)
+
+	// D. Health Check
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ShiftKerja System Online"))
 	})
 
-	// D. Start Server
+	// E. Start Server
 	fmt.Println("🚀 ShiftKerja Backend starting on port 8080...")
 	
-	// 👇 Wrap the default router (nil) with our CORS Middleware
+	// Wrap the default router (nil) with our CORS Middleware
 	router := handler.CORSMiddleware(http.DefaultServeMux)
 
 	if err := http.ListenAndServe(":8080", router); err != nil {
