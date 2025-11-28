@@ -7,8 +7,9 @@ import (
 	"os"
 	"time"
 
-	"shiftkerja-backend/internal/core/entity"
+	"shiftkerja-backend/internal/adapter/handler" 
 	"shiftkerja-backend/internal/adapter/repository"
+	"shiftkerja-backend/internal/core/entity"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
@@ -51,11 +52,9 @@ func main() {
 	}
 	fmt.Println("✅ Connected to Redis successfully!")
 
-	// --- 2.5. SEED DATA (The Missing Link) ---
-	// We initialize the repo using the connection we just made
+	// --- 3. SEED DATA (Temporary) ---
 	repo := repository.NewRedisGeoRepo(rdb)
 
-	// Create a fake shift in Bali (Canggu area)
 	mockShift := entity.Shift{
 		ID:      "shift_001",
 		Title:   "Barista at Canggu Coffee",
@@ -64,24 +63,26 @@ func main() {
 		PayRate: 75000,
 	}
 
-	fmt.Println("🌱 Seeding Mock Shift to Redis...")
-	// We use a background context here for simplicity in the main function
-	if err := repo.AddShift(context.Background(), mockShift); err != nil {
-		fmt.Printf("❌ Failed to seed: %v\n", err)
-	} else {
-		fmt.Println("✅ Mock Shift Seeded! (ID: shift_001)")
-	}
+	// We seed silently here to ensure data exists for the map
+	_ = repo.AddShift(context.Background(), mockShift)
 
-	// Optional: Quick self-test to prove it's there
-	found, _ := repo.FindNearby(context.Background(), -8.64, 115.13, 10)
-	fmt.Printf("🔍 Self-Test: Found %d shifts nearby!\n", len(found))
+	// --- 4. HTTP Server Setup ---
+	
+	// A. Initialize the Handler
+	// We inject the 'repo' so the handler can access the database
+	shiftHandler := handler.NewShiftHandler(repo)
 
-	// --- 3. Start HTTP Server ---
-	fmt.Println("🚀 ShiftKerja Backend starting on port 8080...")
+	// B. Register the Routes
+	// When a user hits "/shifts", run the GetNearby function
+	http.HandleFunc("/shifts", shiftHandler.GetNearby) 
+
+	// C. Health Check
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("ShiftKerja System Online"))
 	})
 
+	// D. Start Server
+	fmt.Println("🚀 ShiftKerja Backend starting on port 8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		fmt.Println("Error:", err)
 	}

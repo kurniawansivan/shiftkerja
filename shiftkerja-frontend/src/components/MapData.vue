@@ -5,21 +5,35 @@ import 'leaflet/dist/leaflet.css';
 
 const map = ref(null);
 
-onMounted(() => {
-  // 1. Initialize the map centered on a default location (e.g., Bali)
-  // [Lat, Lng], Zoom Level
-  map.value = L.map('mapContainer').setView([-8.409518, 115.188919], 13);
+onMounted(async () => {
+  // 1. Initialize the map
+  map.value = L.map('mapContainer').setView([-8.6478, 115.1385], 13); // Centered on Canggu (near our seed data)
 
-  // 2. Add the "Tile Layer" (The skin of the map)
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    attribution: '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    attribution: '&copy; OpenStreetMap'
   }).addTo(map.value);
 
-  // 3. Add a test marker to prove it works
-  L.marker([-8.409518, 115.188919]).addTo(map.value)
-    .bindPopup('ShiftKerja HQ')
-    .openPopup();
+  // 2. FETCH DATA from the Backend 🚀
+  try {
+    // We request shifts near the map center
+    const response = await fetch('http://localhost:8080/shifts?lat=-8.6478&lng=115.1385&rad=10');
+    
+    // Parse the JSON text into a JavaScript Array
+    const shifts = await response.json();
+    console.log("Shifts received:", shifts);
+
+    // 3. RENDER THE PINS
+    // We loop through the array and add a marker for every shift found
+    shifts.forEach(shift => {
+      L.marker([shift.lat, shift.lng])
+        .addTo(map.value)
+        .bindPopup(`<b>${shift.title}</b><br>Pay: Rp ${shift.pay_rate}`);
+    });
+
+  } catch (error) {
+    console.error("Error connecting to backend:", error);
+  }
 });
 </script>
 
