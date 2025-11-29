@@ -126,7 +126,21 @@ const createShift = async () => {
   }
 };
 
+const updatingApplication = ref({});
+const toast = ref({ show: false, message: '', type: '' });
+
+const showToast = (message, type = 'success') => {
+  toast.value = { show: true, message, type };
+  setTimeout(() => {
+    toast.value.show = false;
+  }, 3000);
+};
+
 const updateApplicationStatus = async (applicationId, status) => {
+  if (updatingApplication.value[applicationId]) return;
+  
+  updatingApplication.value[applicationId] = true;
+  
   try {
     const res = await fetch('http://localhost:8080/shifts/applications/update', {
       method: 'POST',
@@ -141,13 +155,22 @@ const updateApplicationStatus = async (applicationId, status) => {
     });
     
     if (res.ok) {
-      // Refresh the shifts and applications
-      await fetchMyShifts();
+      showToast(`Application ${status.toLowerCase()} successfully!`, 'success');
+      // Just update the specific application's status locally
+      Object.keys(applications.value).forEach(shiftId => {
+        const app = applications.value[shiftId]?.find(a => a.id === applicationId);
+        if (app) {
+          app.status = status;
+        }
+      });
     } else {
-      alert('Failed to update application');
+      showToast('Failed to update application', 'error');
     }
   } catch (error) {
     console.error('Error updating application:', error);
+    showToast('Error updating application', 'error');
+  } finally {
+    delete updatingApplication.value[applicationId];
   }
 };
 
@@ -233,7 +256,7 @@ const handleMapClick = (e) => {
   // Create pin marker
   const pinIcon = L.divIcon({
     className: 'temp-pin-marker',
-    html: '<div style=\"background: #EF4444; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 4px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.3);\"><div style=\"width: 10px; height: 10px; background: white; border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(45deg);\"></div></div>',
+    html: '<div style="background: #EF4444; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 4px solid white; box-shadow: 0 4px 8px rgba(0,0,0,0.3);"><div style="width: 10px; height: 10px; background: white; border-radius: 50%; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(45deg);"></div></div>',
     iconSize: [30, 30],
     iconAnchor: [15, 30]
   });
@@ -241,10 +264,10 @@ const handleMapClick = (e) => {
   tempMarker.value = L.marker([lat, lng], { icon: pinIcon })
     .addTo(mapInstance.value)
     .bindPopup(`
-      <div style=\"text-align: center; font-family: sans-serif;\">
-        <p style=\"font-weight: 600; margin: 0 0 8px 0;\">📍 Selected Location</p>
-        <p style=\"font-size: 11px; color: #666; margin: 0 0 12px 0; font-family: monospace;\">${lat.toFixed(6)}, ${lng.toFixed(6)}</p>
-        <button onclick=\"document.getElementById('confirmLocation').click()\" style=\"background: #3B82F6; color: white; padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600;\">Use This Location</button>
+      <div style="text-align: center; font-family: sans-serif;">
+        <p style="font-weight: 600; margin: 0 0 8px 0;">📍 Selected Location</p>
+        <p style="font-size: 11px; color: #666; margin: 0 0 12px 0; font-family: monospace;">${lat.toFixed(6)}, ${lng.toFixed(6)}</p>
+        <button onclick="document.getElementById('confirmLocation').click()" style="background: #3B82F6; color: white; padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600;">Use This Location</button>
       </div>
     `)
     .openPopup();
@@ -416,6 +439,44 @@ onUnmounted(() => {
 
 <template>
   <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <!-- Toast Notification -->
+    <transition
+      enter-active-class="transition ease-out duration-300"
+      enter-from-class="transform translate-x-full opacity-0"
+      enter-to-class="transform translate-x-0 opacity-100"
+      leave-active-class="transition ease-in duration-200"
+      leave-from-class="transform translate-x-0 opacity-100"
+      leave-to-class="transform translate-x-full opacity-0"
+    >
+      <div 
+        v-if="toast.show"
+        class="fixed top-6 right-6 z-[10000] max-w-md"
+      >
+        <div 
+          :class="toast.type === 'success' 
+            ? 'bg-gradient-to-r from-green-500 to-emerald-600' 
+            : 'bg-gradient-to-r from-red-500 to-pink-600'"
+          class="rounded-xl shadow-2xl p-4 text-white flex items-center gap-3"
+        >
+          <svg v-if="toast.type === 'success'" class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <svg v-else class="w-6 h-6 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p class="text-sm font-medium">{{ toast.message }}</p>
+          <button 
+            @click="toast.show = false"
+            class="ml-auto text-white/80 hover:text-white transition-colors"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </transition>
+
     <!-- Real-time Application Notification -->
     <transition
       enter-active-class="transition ease-out duration-300"
@@ -702,19 +763,29 @@ onUnmounted(() => {
                   <div v-if="app.status === 'PENDING'" class="flex gap-2">
                     <button 
                       @click="updateApplicationStatus(app.id, 'ACCEPTED')"
-                      class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-all flex items-center gap-1"
+                      :disabled="updatingApplication[app.id]"
+                      class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-all flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg v-if="!updatingApplication[app.id]" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                      </svg>
+                      <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
                       Accept
                     </button>
                     <button 
                       @click="updateApplicationStatus(app.id, 'REJECTED')"
-                      class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-all flex items-center gap-1"
+                      :disabled="updatingApplication[app.id]"
+                      class="px-4 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-all flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg v-if="!updatingApplication[app.id]" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      <svg v-else class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
                       Reject
                     </button>

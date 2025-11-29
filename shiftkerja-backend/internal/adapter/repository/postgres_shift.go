@@ -7,13 +7,14 @@ import (
 	"shiftkerja-backend/internal/core/entity"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type PostgresShiftRepo struct {
-	DB *pgx.Conn
+	DB *pgxpool.Pool
 }
 
-func NewPostgresShiftRepo(db *pgx.Conn) *PostgresShiftRepo {
+func NewPostgresShiftRepo(db *pgxpool.Pool) *PostgresShiftRepo {
 	return &PostgresShiftRepo{DB: db}
 }
 

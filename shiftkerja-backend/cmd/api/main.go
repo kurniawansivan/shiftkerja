@@ -11,25 +11,25 @@ import (
 	"shiftkerja-backend/internal/adapter/repository"
 	"shiftkerja-backend/internal/core/service"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	// --- 1. Database Setup (Postgres) ---
-	dbURL := "postgres://postgres:password123@localhost:5432/shiftkerja"
+	// --- 1. Database Setup (Postgres with Connection Pool) ---
+	dbURL := "postgres://postgres:password123@localhost:5432/shiftkerja?pool_max_conns=20"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	fmt.Println("⏳ Connecting to Postgres...")
-	conn, err := pgx.Connect(ctx, dbURL)
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		fmt.Printf("❌ Unable to connect to Postgres: %v\n", err)
 		os.Exit(1)
 	}
-	defer conn.Close(context.Background())
+	defer pool.Close()
 
-	if err := conn.Ping(ctx); err != nil {
+	if err := pool.Ping(ctx); err != nil {
 		fmt.Printf("❌ Postgres Ping failed: %v\n", err)
 		os.Exit(1)
 	}
@@ -54,8 +54,8 @@ func main() {
 
 	// --- 3. REPOSITORIES ---
 	redisRepo := repository.NewRedisGeoRepo(rdb)
-	pgShiftRepo := repository.NewPostgresShiftRepo(conn)
-	userRepo := repository.NewPostgresUserRepo(conn)
+	pgShiftRepo := repository.NewPostgresShiftRepo(pool)
+	userRepo := repository.NewPostgresUserRepo(pool)
 
 	// --- 4. SERVICES (Business Logic Layer) ---
 	shiftService := service.NewShiftService(pgShiftRepo, redisRepo)

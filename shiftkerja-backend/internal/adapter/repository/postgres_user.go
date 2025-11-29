@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"shiftkerja-backend/internal/core/entity"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type PostgresUserRepo struct {
-	DB *pgx.Conn
+	DB *pgxpool.Pool
 }
 
-func NewPostgresUserRepo(db *pgx.Conn) *PostgresUserRepo {
+func NewPostgresUserRepo(db *pgxpool.Pool) *PostgresUserRepo {
 	return &PostgresUserRepo{DB: db}
 }
 
