@@ -1,9 +1,11 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, watch, onUnmounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
+import { useSocketStore } from '@/stores/socket';
 import { useRouter } from 'vue-router';
 
 const authStore = useAuthStore();
+const socketStore = useSocketStore();
 const router = useRouter();
 
 const applications = ref([]);
@@ -48,13 +50,134 @@ const getStatusColor = (status) => {
   }
 };
 
+// Real-time notification state
+const statusUpdateNotification = ref(null);
+const showNotification = ref(false);
+
+// Handle real-time WebSocket messages
+watch(() => socketStore.messages, (newMessages) => {
+  if (newMessages.length === 0) return;
+
+  const lastMsgJson = newMessages[newMessages.length - 1];
+  
+  try {
+    const data = JSON.parse(lastMsgJson);
+    console.log("🔔 Worker Dashboard received:", data);
+
+    if (data.type === 'application_status_updated') {
+      // Check if this is one of our applications
+      const app = applications.value.find(a => a.id === data.application_id);
+      if (app) {
+        // Show notification
+        statusUpdateNotification.value = {
+          application_id: data.application_id,
+          new_status: data.new_status,
+          shift_title: app.shift_title
+        };
+        showNotification.value = true;
+
+        // Auto-hide after 5 seconds
+        setTimeout(() => {
+          showNotification.value = false;
+        }, 5000);
+
+        // Refresh applications
+        fetchMyApplications();
+        
+        // Play notification sound
+        playNotificationSound();
+      }
+    }
+  } catch (e) {
+    console.error("Error parsing WebSocket message", e);
+  }
+}, { deep: true });
+
+// Optional: Play notification sound
+const playNotificationSound = () => {
+  try {
+    const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUKvl8bllHgU2jdXyzn0vBSV3yPDej0QKFF+07+yrWBQLR6Hh8sFuIwUqgdDy2Ik2CBtpvfDmnE4MDlCs5fG6Zh4FNo3V8s9+MAUleMnw35FGChVftO/trFoVDEah4fHCcCQFKoLQ8tqKNwgcasLw6Z1PDAxOq+XxumgeBS2O1fLPfzIFJXnK8OCTRwoVX7Xv7a1cFQxGoeLxxG8lBSqC0PLaijcIHGrD8OueUAwMT6vl8btpHwUujtbyz4AzBSV5yvDglEgKFV+17+2uXRUMRqHi8cVwJgUrgtDy24o4CBxqw/DsnlENDFCr5fG8aR8FLo7W8tCANAUlecvw4JVJChZgtO/urlkVDEag4vHFcSYFK4LQ8tuKOAgcasLw7J5SDQxQq+XxvGkfBS+O1vLRgDQFJXnL8OCVSQoWYLTv766aFg1GoOLxx3EnBSuC0PLaiTgIHGrC8OydUg0MUKrl8bxpHwUvjtXy0YA0BSV5y/DglkkKFmC07++vmhYNRqDi8cdxJwUrgtDy2ok4CBxqwvDsnFINDFCq5fG8aB8FL47V8tGAMwUlecvw4JVICBZgtO/vrpoWDUWg4vHHcSYFK4LQ8tqJOAgcasLw65xSDAxQquXxvGgfBS+O1fLRgDMFJXnL8OCUSAoWYLTv766ZFg1FoOLxxnElBSuB0PLaiTgIG2rB8OqcUgwMT6rl8btpHwUvjtby0IAzBSV5y/DglEgKFmC07++umRYNRaDi8cZxJQUrgdDy2ok4CBtqwfDqnFIMDE+q5fG7aR8FL47V8tCAMwUlecvw4JNHChZftO/vrpkWDUWg4fHGcSUFK4HQ8tmJOAgbasHw6pxSDAx');
+    audio.play().catch(() => {});
+  } catch (e) {
+    // Ignore errors
+  }
+};
+
 onMounted(() => {
+  // Connect to WebSocket
+  socketStore.connect();
+  
+  // Fetch initial data
   fetchMyApplications();
+});
+
+onUnmounted(() => {
+  // Clean up notification
+  showNotification.value = false;
 });
 </script>
 
 <template>
   <div class="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+    <!-- Real-time Status Update Notification -->
+    <transition
+      enter-active-class="transition ease-out duration-300"
+      enter-from-class="transform translate-y-full opacity-0"
+      enter-to-class="transform translate-y-0 opacity-100"
+      leave-active-class="transition ease-in duration-200"
+      leave-from-class="transform translate-y-0 opacity-100"
+      leave-to-class="transform translate-y-full opacity-0"
+    >
+      <div 
+        v-if="showNotification && statusUpdateNotification"
+        class="fixed bottom-6 right-6 z-[9999] max-w-md"
+      >
+        <div 
+          :class="statusUpdateNotification.new_status === 'ACCEPTED' 
+            ? 'bg-gradient-to-r from-green-500 to-emerald-600' 
+            : 'bg-gradient-to-r from-red-500 to-pink-600'"
+          class="rounded-2xl shadow-2xl p-6 text-white animate-bounce-slow"
+        >
+          <div class="flex items-start gap-4">
+            <div class="flex-shrink-0">
+              <div class="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center animate-pulse">
+                <svg v-if="statusUpdateNotification.new_status === 'ACCEPTED'" class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <svg v-else class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+            </div>
+            <div class="flex-1">
+              <h3 class="text-lg font-bold mb-1">
+                {{ statusUpdateNotification.new_status === 'ACCEPTED' ? '🎉 Congratulations!' : '😔 Application Update' }}
+              </h3>
+              <p class="text-sm mb-2" :class="statusUpdateNotification.new_status === 'ACCEPTED' ? 'text-green-50' : 'text-red-50'">
+                Your application for 
+                <span class="font-semibold block mt-1">{{ statusUpdateNotification.shift_title }}</span>
+                has been <span class="font-bold">{{ statusUpdateNotification.new_status }}</span>!
+              </p>
+              <button 
+                @click="showNotification = false"
+                class="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+            <button 
+              @click="showNotification = false"
+              class="flex-shrink-0 text-white/80 hover:text-white transition-colors"
+            >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
     <!-- Modern Header -->
     <header class="bg-white border-b border-slate-200 sticky top-0 z-50 backdrop-blur-lg bg-white/90">
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
@@ -193,3 +316,18 @@ onMounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+@keyframes bounce-slow {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-bounce-slow {
+  animation: bounce-slow 2s ease-in-out 2;
+}
+</style>

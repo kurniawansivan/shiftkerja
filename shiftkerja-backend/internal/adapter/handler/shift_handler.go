@@ -193,15 +193,31 @@ func (h *ShiftHandler) Apply(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("✅ Application successful: Worker %d -> Shift %d\n", userID, req.ShiftID)
 
-	// 5. BROADCAST APPLICATION EVENT
+	// 5. BROADCAST DETAILED APPLICATION EVENT
 	if h.Hub != nil {
+		// Get latest application details including worker info
+		applications, _ := h.Service.GetMyApplications(r.Context(), userID)
+		
 		broadcastMsg := map[string]interface{}{
-			"type":      "shift_applied",
+			"type":      "new_application",
 			"shift_id":  req.ShiftID,
 			"worker_id": userID,
+			"status":    "PENDING",
 		}
+		
+		// Find the application we just created and add details
+		for _, app := range applications {
+			if app.ShiftID == req.ShiftID {
+				broadcastMsg["application_id"] = app.ID
+				broadcastMsg["shift_title"] = app.ShiftTitle
+				broadcastMsg["shift_pay_rate"] = app.ShiftPayRate
+				broadcastMsg["created_at"] = app.CreatedAt
+				break
+			}
+		}
+		
 		h.Hub.Broadcast(broadcastMsg)
-		fmt.Printf("📡 Broadcasted application for shift ID: %d\n", req.ShiftID)
+		fmt.Printf("📡 Broadcasted new application: Worker %d -> Shift %d\n", userID, req.ShiftID)
 	}
 
 	util.RespondSuccess(w, "Application submitted successfully", map[string]interface{}{
@@ -336,6 +352,18 @@ func (h *ShiftHandler) UpdateApplicationStatus(w http.ResponseWriter, r *http.Re
 			util.RespondBadRequest(w, err.Error())
 		}
 		return
+	}
+
+	// BROADCAST APPLICATION STATUS UPDATE
+	if h.Hub != nil {
+		broadcastMsg := map[string]interface{}{
+			"type":           "application_status_updated",
+			"application_id": req.ApplicationID,
+			"new_status":     req.Status,
+			"updated_by":     userID,
+		}
+		h.Hub.Broadcast(broadcastMsg)
+		fmt.Printf("📡 Broadcasted status update: Application %d -> %s\n", req.ApplicationID, req.Status)
 	}
 
 	util.RespondSuccess(w, "Application status updated successfully", map[string]interface{}{
